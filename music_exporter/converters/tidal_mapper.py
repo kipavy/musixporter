@@ -1,0 +1,218 @@
+import requests
+import time
+import json
+import re
+import base64
+from music_exporter.interfaces import IdConverter
+
+class TidalMapper(IdConverter):
+    API_KEYS = [
+        {
+            "name": "Fire TV",
+            "id": "7m7Ap0JC9j1cOM3n",
+            "secret": "vRAdA108tlvkJpTsGZS8rGZ7xTlbJ0qaZ2K9saEzsgY="
+        },
+        {
+            "name": "Android Auto",
+            "id": "zU4XHVVkc2tDPo4t",
+            "secret": "VJKhDFqJPqvsPVNBV6ukXTJmwlvbttP7wlMlrc72se4="
+        }
+    ]
+    
+    AUTH_URL = "https://auth.tidal.com/v1/oauth2/token"
+    API_BASE = "https://api.tidal.com/v1"
+    
+    def __init__(self):
+        self.session = requests.Session()
+        self.country_code = "FR" 
+        self.bearer_token = None
+
+    def _authenticate(self):
+        print("[Tidal] Generating Access Token...")
+        for key in self.API_KEYS:
+            try:
+                creds = f"{key['id']}:{key['secret']}"
+                b64_creds = base64.b64encode(creds.encode()).decode()
+                headers = {"Authorization": f"Basic {b64_creds}", "Content-Type": "application/x-www-form-urlencoded"}
+                data = {"grant_type": "client_credentials"}
+                
+                r = self.session.post(self.AUTH_URL, data=data, headers=headers, timeout=5)
+                resp = r.json()
+                
+                if r.status_code == 200 and "access_token" in resp:
+                    self.bearer_token = resp["access_token"]
+                    self.session.headers.update({"Authorization": f"Bearer {self.bearer_token}", "Accept": "application/json"})
+                    print(f"[Tidal] Authenticated successfully using {key['name']}.")
+                    return
+            except Exception: continue
+        raise Exception("FATAL: Could not generate a Tidal Access Token.")
+
+    def convert(self, data: dict) -> dict:
+        self._authenticate()
+        
+        converted = {
+            "tracks": [],
+            "albums": [],
+            "artists": data.get('artists', []),
+            "user_playlists": [],
+            "favorites_tracks": []
+        }
+
+        print(f"\n[Tidal] Starting conversion (Country: {self.country_code})...")
+
+        # 1. Tracks
+        tracks_in = data.get('tracks', [])
+        total = len(tracks_in)
+        success = 0
+        print(f"[Tidal] Mapping {total} Tracks...")
+        
+        for i, t in enumerate(tracks_in):
+            tidal_t = self._find_track(t)
+            if tidal_t:
+                converted['tracks'].append(tidal_t)
+                converted['favorites_tracks'].append(tidal_t)
+                success += 1
+            
+            if i % 10 == 0 and i > 0:
+                print(f"   ...Processed {i}/{total} (Matches: {success})...")
+            time.sleep(0.1)
+
+        # 2. Albums
+        print(f"[Tidal] Mapping {len(data.get('albums', []))} Albums...")
+        for a in data.get('albums', []):
+            tidal_a = self._find_album(a)
+            if tidal_a: converted['albums'].append(tidal_a)
+            time.sleep(0.1)
+
+        # 3. Playlists
+        print(f"[Tidal] Mapping {len(data.get('user_playlists', []))} User Playlists...")
+        for pl in data.get('user_playlists', []):
+            new_pl_tracks = []
+            for t in pl.get('tracks', []):
+                tidal_t = self._find_track(t, silent=True)
+                if tidal_t: new_pl_tracks.append(tidal_t)
+            
+            new_pl = pl.copy()
+            new_pl['tracks'] = new_pl_tracks
+            converted['user_playlists'].append(new_pl)
+
+        return converted
+
+    def _clean_str(self, s):
+        if not s: return ""
+        s = re.sub(r'\s*[\(\[].*?[\)\]]', '', s) # Remove (feat) [Edit]
+        return re.sub(r'[^a-zA-Z0-9 ]', '', s.lower()).strip()
+
+    def _get_safe_artist(self, obj):
+        """Robustly extracts Artist Name and ID from any dict structure."""
+        # Try 'artist' dict
+        if 'artist' in obj and isinstance(obj['artist'], dict):
+            return obj['artist'].get('name', 'Unknown'), obj['artist'].get('id', 0)
+        # Try 'artists' list
+        if 'artists' in obj and isinstance(obj['artists'], list) and len(obj['artists']) > 0:
+            return obj['artists'][0].get('name', 'Unknown'), obj['artists'][0].get('id', 0)
+        # Fallback
+        return "Unknown", 0
+
+    def _find_track(self, deezer_track, silent=False):
+        try:
+            # 1. EXTRACT DEEZER METADATA
+            art_name, art_id = self._get_safe_artist(deezer_track)
+            
+            if art_name == "Unknown":
+                # Only fail if title is also missing
+                if not deezer_track.get('title'): return None
+
+            # Clean up for search
+            search_art = art_name.split('(')[0].split('feat')[0].strip()
+            clean_title = self._clean_str(deezer_track.get('title', ''))
+            target_dur = deezer_track.get('duration', 0)
+            
+            # 2. SEARCH TIDAL
+            query = f"{search_art} {clean_title}"
+            params = {'query': query, 'limit': 5, 'types': 'TRACKS', 'countryCode': self.country_code}
+            
+            r = self.session.get(f"{self.API_BASE}/search", params=params)
+            results = r.json().get('tracks', {}).get('items', [])
+            
+            # Fallback: Search Title only
+            if not results and len(clean_title) > 5:
+                params['query'] = clean_title
+                r = self.session.get(f"{self.API_BASE}/search", params=params)
+                results = r.json().get('tracks', {}).get('items', [])
+
+            if not results:
+                if not silent: print(f"      [Miss] '{query}'")
+                return None
+            
+            # 3. MATCHING
+            for item in results:
+                # Duration check
+                if target_dur > 0 and abs(item['duration'] - target_dur) > 15:
+                    continue 
+                
+                # Title check
+                found_title = self._clean_str(item['title'])
+                if clean_title == found_title or clean_title in found_title or found_title in clean_title:
+                    return self._map_tidal_to_internal(item, deezer_track)
+            
+            return None
+
+        except Exception as e:
+            if not silent: 
+                t_title = deezer_track.get('title', 'Unknown')
+                print(f"      [Error processing '{t_title}']: {e}")
+            return None
+
+    def _find_album(self, deezer_alb):
+        try:
+            art_name, _ = self._get_safe_artist(deezer_alb)
+            query = f"{art_name} {deezer_alb.get('title','')}"
+            params = {'query': query, 'limit': 1, 'types': 'ALBUMS', 'countryCode': self.country_code}
+            
+            r = self.session.get(f"{self.API_BASE}/search", params=params)
+            results = r.json().get('albums', {}).get('items', [])
+            if results:
+                item = results[0]
+                # Safe mapping
+                t_art_name, t_art_id = self._get_safe_artist(item)
+                
+                return {
+                    "id": item['id'],
+                    "title": item['title'],
+                    "date_add": deezer_alb.get('date_add'),
+                    "release_date": item.get('releaseDate'),
+                    "cover": f"https://resources.tidal.com/images/{item['cover'].replace('-', '/')}/640x640.jpg" if item.get('cover') else "",
+                    "artist": {"id": t_art_id, "name": t_art_name},
+                    "nb_tracks": item.get('numberOfTracks'),
+                    "type": "ALBUM"
+                }
+            return None
+        except: return None
+
+    def _map_tidal_to_internal(self, tidal_item, original_deezer):
+        # Extract artist safely from Tidal item (handles artist vs artists)
+        t_art_name, t_art_id = self._get_safe_artist(tidal_item)
+        
+        # Extract album cover safely
+        cover_url = ""
+        if 'album' in tidal_item and tidal_item['album'].get('cover'):
+            cover_url = f"https://resources.tidal.com/images/{tidal_item['album']['cover'].replace('-', '/')}/640x640.jpg"
+
+        return {
+            "id": tidal_item['id'],
+            "title": tidal_item['title'],
+            "duration": tidal_item['duration'],
+            "explicit": tidal_item.get('explicit', False),
+            "version": tidal_item.get('version', ''),
+            "date_add": original_deezer.get('date_add'),
+            "artist": {
+                "id": t_art_id, 
+                "name": t_art_name
+            },
+            "album": {
+                "id": tidal_item['album']['id'] if 'album' in tidal_item else 0, 
+                "title": tidal_item['album']['title'] if 'album' in tidal_item else "Unknown", 
+                "cover": cover_url
+            }
+        }
