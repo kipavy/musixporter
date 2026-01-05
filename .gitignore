@@ -1,3 +1,4 @@
 __pycache__/
 *.pyc
 *egg-info/
+monochrome_tidal_import.json

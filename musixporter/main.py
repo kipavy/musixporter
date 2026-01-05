@@ -2,6 +2,7 @@ import argparse
 from musixporter.sources.factory import get_source, list_sources
 from musixporter.converters.tidal_mapper import TidalMapper
 from musixporter.formatters.monochrome import MonochromeJsonOutput
+from musixporter.console import info, success, warn, error, console
 
 
 def main():
@@ -11,15 +12,12 @@ def main():
 
     available = list_sources()
     if not available:
-        print(
-            "No sources available. Make sure musixporter.sources modules exist."
-        )
+        error("No sources available. Make sure musixporter.sources modules exist.")
         return
 
     parser.add_argument(
-        "--source",
+        "source",
         choices=available,
-        default="deezer",
         help="Source to fetch data from",
     )
     parser.add_argument(
@@ -27,37 +25,53 @@ def main():
         default=None,
         help="(YouTube) path to ytmusicapi headers_auth.json for authenticated access",
     )
+    parser.add_argument(
+        "--yt-playlist",
+        default=None,
+        help="(YouTube) public playlist id to fetch (unauthenticated)",
+    )
     args = parser.parse_args()
 
-    print(f"=== Music Exporter (source={args.source}) ===")
+    if (
+        args.source == "ytmusic"
+        and not args.yt_headers
+        and not args.yt_playlist
+    ):
+        parser.error(
+            "When --source ytmusic you must provide --yt-headers or --yt-playlist"
+        )
+
+    info(f"=== Music Exporter (source={args.source}) ===")
 
     try:
-        source = get_source(args.source)
+        if args.source == "ytmusic":
+            source = get_source(
+                args.source,
+                auth_headers_path=args.yt_headers,
+                playlist_id=args.yt_playlist,
+            )
+        else:
+            source = get_source(args.source)
     except KeyError as e:
-        print(e)
-        print("Available sources:", ", ".join(list_sources()))
+        error(str(e))
+        info("Available sources: " + ", ".join(list_sources()))
         return
 
     converter = TidalMapper()
     formatter = MonochromeJsonOutput()
 
     try:
-        # 2. Get Data from source
         source.authenticate()
         data = source.fetch_data()
 
-        # 3. Convert IDs (Search on Tidal)
-        print("\n--- Phase 2: Converting IDs to Tidal ---")
+        info("\n--- Phase 2: Converting IDs to Tidal ---")
         tidal_data = converter.convert(data)
 
-        # 4. Save to Monochrome Format
         formatter.save(tidal_data, "monochrome_tidal_import.json")
 
     except Exception as e:
-        print(f"\nFATAL ERROR: {e}")
-        import traceback
-
-        traceback.print_exc()
+        error(f"\nFATAL ERROR: {e}")
+        console.print_exception()
 
 
 if __name__ == "__main__":

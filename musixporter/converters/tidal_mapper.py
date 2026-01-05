@@ -5,6 +5,17 @@ import re
 import base64
 from musixporter.interfaces import IdConverter
 
+# Optional rich for improved console output
+try:
+    from rich.console import Console
+    from rich.progress import Progress, BarColumn, TimeElapsedColumn, TimeRemainingColumn, SpinnerColumn, TextColumn
+    from rich.theme import Theme
+    HAS_RICH = True
+    console = Console(theme=Theme({"info": "cyan", "success": "green", "error": "bold red", "warn": "yellow"}))
+except Exception:
+    HAS_RICH = False
+    console = None
+
 class TidalMapper(IdConverter):
     API_KEYS = [
         {
@@ -26,9 +37,13 @@ class TidalMapper(IdConverter):
         self.session = requests.Session()
         self.country_code = "FR" 
         self.bearer_token = None
+        self.console = console
 
     def _authenticate(self):
-        print("[Tidal] Generating Access Token...")
+        if self.console:
+            self.console.print("[Tidal] Generating Access Token...", style="info")
+        else:
+            print("[Tidal] Generating Access Token...")
         for key in self.API_KEYS:
             try:
                 creds = f"{key['id']}:{key['secret']}"
@@ -42,14 +57,17 @@ class TidalMapper(IdConverter):
                 if r.status_code == 200 and "access_token" in resp:
                     self.bearer_token = resp["access_token"]
                     self.session.headers.update({"Authorization": f"Bearer {self.bearer_token}", "Accept": "application/json"})
-                    print(f"[Tidal] Authenticated successfully using {key['name']}.")
+                    if self.console:
+                        self.console.print(f"[Tidal] Authenticated successfully using {key['name']}.", style="success")
+                    else:
+                        print(f"[Tidal] Authenticated successfully using {key['name']}.")
                     return
             except Exception: continue
         raise Exception("FATAL: Could not generate a Tidal Access Token.")
 
     def convert(self, data: dict) -> dict:
         self._authenticate()
-        
+
         converted = {
             "tracks": [],
             "albums": [],
@@ -58,43 +76,115 @@ class TidalMapper(IdConverter):
             "favorites_tracks": []
         }
 
-        print(f"\n[Tidal] Starting conversion (Country: {self.country_code})...")
+        header = f"[Tidal] Starting conversion (Country: {self.country_code})..."
+        if self.console:
+            self.console.print()
+            self.console.print(header, style="info")
+        else:
+            print(f"\n{header}")
 
         # 1. Tracks
         tracks_in = data.get('tracks', [])
         total = len(tracks_in)
         success = 0
-        print(f"[Tidal] Mapping {total} Tracks...")
-        
-        for i, t in enumerate(tracks_in):
-            tidal_t = self._find_track(t)
-            if tidal_t:
-                converted['tracks'].append(tidal_t)
-                converted['favorites_tracks'].append(tidal_t)
-                success += 1
-            
-            if i % 10 == 0 and i > 0:
-                print(f"   ...Processed {i}/{total} (Matches: {success})...")
-            time.sleep(0.1)
+
+        if self.console:
+            with Progress(SpinnerColumn(), TextColumn("{task.description}"), BarColumn(), "[progress.percentage]{task.percentage:>3.0f}%", TimeElapsedColumn(), TimeRemainingColumn(), console=self.console) as progress:
+                task = progress.add_task(f"Mapping Tracks", total=total)
+                for i, t in enumerate(tracks_in):
+                    tidal_t = self._find_track(t)
+                    if tidal_t:
+                        converted['tracks'].append(tidal_t)
+                        converted['favorites_tracks'].append(tidal_t)
+                        success += 1
+                    progress.advance(task)
+                    # update description occasionally
+                    if (i + 1) % 10 == 0 or i + 1 == total:
+                        progress.update(task, description=f"Mapping Tracks ({i+1}/{total}) Matches: {success}")
+                    time.sleep(0.1)
+        else:
+            print(f"[Tidal] Mapping {total} Tracks...")
+            for i, t in enumerate(tracks_in):
+                tidal_t = self._find_track(t)
+                if tidal_t:
+                    converted['tracks'].append(tidal_t)
+                    converted['favorites_tracks'].append(tidal_t)
+                    success += 1
+                if i % 10 == 0 and i > 0:
+                    print(f"   ...Processed {i}/{total} (Matches: {success})...")
+                time.sleep(0.1)
 
         # 2. Albums
-        print(f"[Tidal] Mapping {len(data.get('albums', []))} Albums...")
-        for a in data.get('albums', []):
-            tidal_a = self._find_album(a)
-            if tidal_a: converted['albums'].append(tidal_a)
-            time.sleep(0.1)
+        albums_in = data.get('albums', [])
+        if self.console:
+            with Progress(SpinnerColumn(), TextColumn("{task.description}"), BarColumn(), TimeElapsedColumn(), console=self.console) as progress:
+                task_a = progress.add_task("Mapping Albums", total=len(albums_in))
+                for i, a in enumerate(albums_in, start=1):
+                    title = (a.get('title') or str(a.get('id') or 'album'))[:40]
+                    tidal_a = self._find_album(a)
+                    if tidal_a:
+                        converted['albums'].append(tidal_a)
+                    progress.advance(task_a)
+                    # update description to show processed/total and album title
+                    if (i % 1 == 0) or (i == len(albums_in)):
+                        progress.update(task_a, description=f"Mapping Albums ({i}/{len(albums_in)}) {title}")
+                    time.sleep(0.1)
+        else:
+            print(f"[Tidal] Mapping {len(albums_in)} Albums...")
+            for i, a in enumerate(albums_in, start=1):
+                tidal_a = self._find_album(a)
+                if tidal_a: converted['albums'].append(tidal_a)
+                # print a simple progress every 5 albums
+                if i % 5 == 0 or i == len(albums_in):
+                    print(f"   ...Processed {i}/{len(albums_in)} albums...")
+                time.sleep(0.1)
 
         # 3. Playlists
-        print(f"[Tidal] Mapping {len(data.get('user_playlists', []))} User Playlists...")
-        for pl in data.get('user_playlists', []):
-            new_pl_tracks = []
-            for t in pl.get('tracks', []):
-                tidal_t = self._find_track(t, silent=True)
-                if tidal_t: new_pl_tracks.append(tidal_t)
-            
-            new_pl = pl.copy()
-            new_pl['tracks'] = new_pl_tracks
-            converted['user_playlists'].append(new_pl)
+        playlists_in = data.get('user_playlists', [])
+        if self.console:
+            with Progress(SpinnerColumn(), TextColumn("{task.description}"), BarColumn(), TimeElapsedColumn(), console=self.console) as progress:
+                task_p = progress.add_task("Mapping Playlists", total=len(playlists_in))
+                for idx, pl in enumerate(playlists_in, start=1):
+                    tracks = pl.get('tracks', []) or []
+                    track_count = len(tracks)
+                    sub_desc = (pl.get('title') or str(pl.get('id') or 'playlist'))[:40]
+
+                    if track_count == 0:
+                        new_pl = pl.copy()
+                        new_pl['tracks'] = []
+                        converted['user_playlists'].append(new_pl)
+                        progress.advance(task_p)
+                        continue
+
+                    subtask = progress.add_task(f"{sub_desc} 0/{track_count}", total=track_count)
+                    new_pl_tracks = []
+                    for i, t in enumerate(tracks, start=1):
+                        tidal_t = self._find_track(t, silent=True)
+                        if tidal_t:
+                            new_pl_tracks.append(tidal_t)
+                        progress.advance(subtask)
+                        if (i % 5 == 0) or (i == track_count):
+                            progress.update(subtask, description=f"{sub_desc} {i}/{track_count}")
+
+                    new_pl = pl.copy()
+                    new_pl['tracks'] = new_pl_tracks
+                    converted['user_playlists'].append(new_pl)
+                    progress.remove_task(subtask)
+                    progress.advance(task_p)
+        else:
+            print(f"[Tidal] Mapping {len(playlists_in)} User Playlists...")
+            for pi, pl in enumerate(playlists_in, start=1):
+                tracks = pl.get('tracks', []) or []
+                new_pl_tracks = []
+                for i, t in enumerate(tracks, start=1):
+                    tidal_t = self._find_track(t, silent=True)
+                    if tidal_t:
+                        new_pl_tracks.append(tidal_t)
+                    if i % 100 == 0:
+                        print(f"   Playlist {pi}/{len(playlists_in)}: processed {i}/{len(tracks)} tracks")
+                new_pl = pl.copy()
+                new_pl['tracks'] = new_pl_tracks
+                converted['user_playlists'].append(new_pl)
 
         return converted
 
@@ -142,7 +232,11 @@ class TidalMapper(IdConverter):
                 results = r.json().get('tracks', {}).get('items', [])
 
             if not results:
-                if not silent: print(f"      [Miss] '{query}'")
+                if not silent:
+                    if self.console:
+                        self.console.print(f"[Miss] '{query}'", style="warn")
+                    else:
+                        print(f"      [Miss] '{query}'")
                 return None
             
             # 3. MATCHING
@@ -159,9 +253,12 @@ class TidalMapper(IdConverter):
             return None
 
         except Exception as e:
-            if not silent: 
+            if not silent:
                 t_title = deezer_track.get('title', 'Unknown')
-                print(f"      [Error processing '{t_title}']: {e}")
+                if self.console:
+                    self.console.print(f"[Error processing '{t_title}']: {e}", style="error")
+                else:
+                    print(f"      [Error processing '{t_title}']: {e}")
             return None
 
     def _find_album(self, deezer_alb):

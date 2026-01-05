@@ -35,13 +35,11 @@ def discover_sources(
         try:
             mod = importlib.import_module(full_mod)
         except Exception:
-            # Ignore modules that fail to import
             continue
 
         for _, obj in inspect.getmembers(mod, inspect.isclass):
             try:
                 if issubclass(obj, InputSource) and obj is not InputSource:
-                    # register under module short name if not already present
                     key = getattr(obj, "SOURCE_KEY", short_name)
                     sources[key] = obj
             except Exception:

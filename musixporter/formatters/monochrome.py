@@ -87,12 +87,10 @@ class MonochromeJsonOutput(OutputFormatter):
                     rest = path.split('/images/', 1)[1]
                     parts = [p for p in rest.split('/') if p]
                     if len(parts) >= 1:
-                        # drop trailing filename/size if present
                         if '.' in parts[-1]:
                             parts = parts[:-1]
                         if parts:
                             return '-'.join(parts)
-            # handle already-slashed ids like 'bddf1064/b2fb/...'
             if isinstance(cover, str) and '/' in cover and not cover.startswith('http'):
                 parts = [p for p in cover.split('/') if p]
                 if parts:
