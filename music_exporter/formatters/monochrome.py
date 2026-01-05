@@ -32,7 +32,7 @@ class MonochromeJsonOutput(OutputFormatter):
                 "id": int(a['id']),
                 "addedAt": self._format_ms(a['date_add']),
                 "title": a['title'],
-                "cover": a['cover'],
+                "cover": self._normalize_cover(a['cover']),
                 "releaseDate": a['release_date'],
                 "explicit": False,
                 "artist": a['artist'],
@@ -42,7 +42,7 @@ class MonochromeJsonOutput(OutputFormatter):
 
         for pl in data['user_playlists']:
             out["user_playlists"].append({
-                "cover": pl['cover'],
+                "cover": "",
                 "createdAt": self._format_ms(pl['creation_date']),
                 "id": str(pl['id']),
                 "name": pl['title'],
@@ -56,6 +56,7 @@ class MonochromeJsonOutput(OutputFormatter):
     def _fmt_t(self, t):
         return {
             "id": int(t['id']),
+            "addedAt": self._format_ms(t.get('date_add', 0)),
             "title": t['title'],
             "duration": t['duration'],
             "explicit": t['explicit'],
@@ -64,6 +65,38 @@ class MonochromeJsonOutput(OutputFormatter):
             "artists": [t['artist']],
             "album": {
                 "id": int(t['album']['id']) if t['album']['id'] else 0,
-                "cover": t['album']['cover']
+                "cover": self._normalize_cover(t['album']['cover'])
             }
         }
+
+    def _normalize_cover(self, cover):
+        """Normalize cover into the compact ID form.
+
+        Example:
+        https://resources.tidal.com/images/bddf1064/b2fb/4c6f/a2d5/fd54685b1b42/640x640.jpg
+        -> bddf1064-b2fb-4c6f-a2d5-fd54685b1b42
+        """
+        if not cover:
+            return cover
+        try:
+            if isinstance(cover, str) and cover.startswith('http'):
+                from urllib.parse import urlparse
+                p = urlparse(cover)
+                path = p.path or ''
+                if '/images/' in path:
+                    rest = path.split('/images/', 1)[1]
+                    parts = [p for p in rest.split('/') if p]
+                    if len(parts) >= 1:
+                        # drop trailing filename/size if present
+                        if '.' in parts[-1]:
+                            parts = parts[:-1]
+                        if parts:
+                            return '-'.join(parts)
+            # handle already-slashed ids like 'bddf1064/b2fb/...'
+            if isinstance(cover, str) and '/' in cover and not cover.startswith('http'):
+                parts = [p for p in cover.split('/') if p]
+                if parts:
+                    return '-'.join(parts)
+        except Exception:
+            pass
+        return cover
