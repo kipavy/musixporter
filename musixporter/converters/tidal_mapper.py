@@ -3,7 +3,7 @@ import time
 import json
 import re
 import base64
-from music_exporter.interfaces import IdConverter
+from musixporter.interfaces import IdConverter
 
 class TidalMapper(IdConverter):
     API_KEYS = [

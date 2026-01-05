@@ -3,7 +3,7 @@ import time
 import requests
 import random
 from pathlib import Path
-from music_exporter.interfaces import InputSource
+from musixporter.interfaces import InputSource
 
 try:
     import browser_cookie3
@@ -12,7 +12,7 @@ try:
 except ImportError:
     AUTO_LOGIN_AVAILABLE = False
 
-ARL_CACHE_FILE = Path.home() / ".music_exporter_deezer_arl.json"
+ARL_CACHE_FILE = Path.home() / ".musixporter_deezer_arl.json"
 
 
 def _read_arl_cache():
@@ -75,23 +75,25 @@ class DeezerGatewaySource(InputSource):
             except Exception:
                 pass
 
-        # 2. Try cached ARL
+        # 2. Optionally offer cached ARL (disabled by default)
         if not self.arl:
-            cached = _read_arl_cache()
-            if cached:
-                self.arl = cached
-                print("[Deezer] Using cached ARL.")
+            if ARL_CACHE_FILE.exists():
+                use_cached = (
+                    input(
+                        f"A cached ARL was found at {ARL_CACHE_FILE}. Use it? [y/N]: "
+                    )
+                    .strip()
+                    .lower()
+                )
+                if use_cached == "y":
+                    cached = _read_arl_cache()
+                    if cached:
+                        self.arl = cached
+                        print("[Deezer] Using cached ARL.")
 
         # 3. Manual input fallback
         if not self.arl:
-            self.arl = input(
-                "    Please paste the value of the 'arl' cookie: "
-            ).strip()
-
-        if not self.arl:
-            raise Exception("No ARL provided.")
-
-        self.session.cookies.set("arl", self.arl, domain=".deezer.com")
+            self._ask_and_maybe_save_arl()
 
         # Initial handshake; if cached ARL fails, fall back to asking the user once more
         try:
@@ -103,19 +105,36 @@ class DeezerGatewaySource(InputSource):
                     ARL_CACHE_FILE.unlink()
                 except Exception:
                     pass
-                self.arl = input(
-                    "    Please paste the value of the 'arl' cookie: "
-                ).strip()
-                if not self.arl:
-                    raise Exception("No ARL provided.")
+                # reuse prompt/save helper
+                self._ask_and_maybe_save_arl()
                 self.session.cookies.set("arl", self.arl, domain=".deezer.com")
                 self._refresh_token()
             else:
                 raise
 
-        # Persist the valid ARL for next runs
-        _write_arl_cache(self.arl)
         print(f"[Deezer] Logged in as User ID: {self.user_id}")
+
+    def _ask_and_maybe_save_arl(self):
+        """Prompt user for ARL and optionally save it to cache file.
+
+        Sets `self.arl` when a value is provided, raises if empty.
+        """
+        self.arl = input(
+            "    Please paste the value of the 'arl' cookie: "
+        ).strip()
+
+        if not self.arl:
+            raise Exception("No ARL provided.")
+
+        # Ask whether to persist the provided ARL
+        save_choice = (
+            input(f"Save this ARL to {ARL_CACHE_FILE}? [y/N]: ").strip().lower()
+        )
+        if save_choice == "y":
+            _write_arl_cache(self.arl)
+            print(f"[Deezer] ARL cached to {ARL_CACHE_FILE}")
+        # set cookie immediately
+        self.session.cookies.set("arl", self.arl, domain=".deezer.com")
 
     def _get_cid(self):
         return str(random.randint(100000000, 999999999))

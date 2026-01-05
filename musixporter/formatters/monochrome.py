@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-from music_exporter.interfaces import OutputFormatter
+from musixporter.interfaces import OutputFormatter
 
 class MonochromeJsonOutput(OutputFormatter):
     def _format_date(self, timestamp):

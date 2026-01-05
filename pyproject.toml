@@ -3,9 +3,9 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "music_exporter"
+name = "musixporter"
 version = "1.0.0"
-description = "Modular music library exporter (Deezer to Monochrome)"
+description = "Modular music library exporter"
 requires-python = ">=3.8"
 dependencies = [
     "requests",
@@ -13,4 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-music-export = "music_exporter.main:main"
+musixporter = "musixporter.main:main"
+
+[project.optional-dependencies]
+ytmusic = ["ytmusicapi"]
