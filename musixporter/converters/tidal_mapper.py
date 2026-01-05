@@ -76,6 +76,8 @@ class TidalMapper(IdConverter):
             "favorites_tracks": []
         }
 
+        missed = []
+
         header = f"[Tidal] Starting conversion (Country: {self.country_code})..."
         if self.console:
             self.console.print()
@@ -97,6 +99,14 @@ class TidalMapper(IdConverter):
                         converted['tracks'].append(tidal_t)
                         converted['favorites_tracks'].append(tidal_t)
                         success += 1
+                    else:
+                        missed.append({
+                            'context': 'tracks',
+                            'index': i + 1,
+                            'title': t.get('title'),
+                            'artist': self._get_safe_artist(t)[0],
+                            'original': t,
+                        })
                     progress.advance(task)
                     # update description occasionally
                     if (i + 1) % 10 == 0 or i + 1 == total:
@@ -124,6 +134,14 @@ class TidalMapper(IdConverter):
                     tidal_a = self._find_album(a)
                     if tidal_a:
                         converted['albums'].append(tidal_a)
+                    else:
+                        missed.append({
+                            'context': 'album',
+                            'index': i,
+                            'title': a.get('title'),
+                            'artist': self._get_safe_artist(a)[0],
+                            'original': a,
+                        })
                     progress.advance(task_a)
                     # update description to show processed/total and album title
                     if (i % 1 == 0) or (i == len(albums_in)):
@@ -162,6 +180,16 @@ class TidalMapper(IdConverter):
                         tidal_t = self._find_track(t, silent=True)
                         if tidal_t:
                             new_pl_tracks.append(tidal_t)
+                        else:
+                            missed.append({
+                                'context': 'playlist',
+                                'playlist_index': idx,
+                                'playlist_title': sub_desc,
+                                'track_index': i,
+                                'title': t.get('title'),
+                                'artist': self._get_safe_artist(t)[0],
+                                'original': t,
+                            })
                         progress.advance(subtask)
                         if (i % 5 == 0) or (i == track_count):
                             progress.update(subtask, description=f"{sub_desc} {i}/{track_count}")
@@ -180,11 +208,37 @@ class TidalMapper(IdConverter):
                     tidal_t = self._find_track(t, silent=True)
                     if tidal_t:
                         new_pl_tracks.append(tidal_t)
+                    else:
+                        missed.append({
+                            'context': 'playlist',
+                            'playlist_index': pi,
+                            'playlist_title': pl.get('title'),
+                            'track_index': i,
+                            'title': t.get('title'),
+                            'artist': self._get_safe_artist(t)[0],
+                            'original': t,
+                        })
                     if i % 100 == 0:
                         print(f"   Playlist {pi}/{len(playlists_in)}: processed {i}/{len(tracks)} tracks")
                 new_pl = pl.copy()
                 new_pl['tracks'] = new_pl_tracks
                 converted['user_playlists'].append(new_pl)
+
+        if missed:
+            try:
+                with open('missed_tidal.json', 'w', encoding='utf-8') as mf:
+                    json.dump(missed, mf, indent=2, ensure_ascii=False)
+                if self.console:
+                    self.console.print(f"[Tidal] {len(missed)} items not matched — details saved to missed_tidal.json", style="warn")
+                    for m in missed[:20]:
+                        self.console.print(f" - {m.get('context')}: {m.get('title')} — {m.get('artist')}")
+                else:
+                    print(f"[Tidal] {len(missed)} items not matched — saved to missed_tidal.json")
+            except Exception:
+                if self.console:
+                    self.console.print("[Tidal] Could not write missed_tidal.json", style="error")
+                else:
+                    print("[Tidal] Could not write missed_tidal.json")
 
         return converted
 

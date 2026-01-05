@@ -77,8 +77,8 @@ class YouTubeMusicSource(InputSource):
         }
 
         try:
-            liked = self.client.get_liked_songs(limit=100)
-            for it in liked.get("tracks", [])[:500]:
+            liked = self.client.get_liked_songs(limit=None)
+            for it in liked.get("tracks", []):
                 artists = it.get("artists") or []
                 artist_name = artists[0].get("name") if artists else "Unknown"
                 track = {
@@ -94,7 +94,7 @@ class YouTubeMusicSource(InputSource):
 
         if self.playlist_id:
             try:
-                items = self.client.get_playlist(self.playlist_id, limit=200)
+                items = self.client.get_playlist(self.playlist_id, limit=None)
                 pl_items = []
                 for it in items.get("tracks", []):
                     artists = it.get("artists") or []
@@ -133,7 +133,7 @@ class YouTubeMusicSource(InputSource):
                 pl_title = pl.get("title")
                 pl_items = []
                 try:
-                    items = self.client.get_playlist(pl_id, limit=200)
+                    items = self.client.get_playlist(pl_id, limit=None)
                     for it in items.get("tracks", []):
                         artists = it.get("artists") or []
                         artist_name = (
