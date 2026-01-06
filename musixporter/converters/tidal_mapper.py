@@ -2,6 +2,7 @@ import requests
 import time
 import json
 import re
+import difflib
 import base64
 from musixporter.interfaces import IdConverter
 
@@ -405,52 +406,94 @@ class TidalMapper(IdConverter):
         return self._find_track_by_isrc(isrc)
 
     def _approach_artist_title(self, source_track, silent=False):
-        """Approach 2: lookup by artist + title (+ optional duration matching)."""
-        art_name, art_id = self._get_safe_artist(source_track)
-        if art_name == "Unknown" and not source_track.get("title"):
+        """Approach 2: build multiple queries (track, track+artist, track+album)
+        and pick the best fuzzy match among Tidal search results.
+        """
+        title = source_track.get("title")
+        if not title:
             return None
 
-        # Clean up for search
-        search_art = art_name.split("(")[0].split("feat")[0].strip()
-        clean_title = self._clean_str(source_track.get("title", ""))
+        # Prepare cleaned names
+        clean_title = self._clean_str(title)
         target_dur = source_track.get("duration", 0)
 
-        # Primary search (artist + title)
-        query = f"{search_art} {clean_title}"
-        data = self._search_tidal(query, types="TRACKS", limit=5)
-        results = data.get("tracks", {}).get("items", [])
+        # Album name (try common keys)
+        album = source_track.get("album") or {}
+        album_name = ""
+        if isinstance(album, dict):
+            album_name = album.get("title") or album.get("name") or ""
+        elif isinstance(album, str):
+            album_name = album
+        album_name = self._clean_str(album_name)
 
-        # Fallback: Title-only search
-        if not results and len(clean_title) > 5:
-            data = self._search_tidal(clean_title, types="TRACKS", limit=5)
-            results = data.get("tracks", {}).get("items", [])
-
-        if not results:
-            if not silent:
-                if self.console:
-                    self.console.print(f"[Miss] '{query}'", style="warn")
+        # Artists list
+        artists = []
+        if "artists" in source_track and isinstance(source_track["artists"], list):
+            for a in source_track["artists"]:
+                if isinstance(a, dict):
+                    artists.append(a.get("name", ""))
                 else:
-                    print(f"      [Miss] '{query}'")
-            return None
+                    artists.append(str(a))
+        elif "artist" in source_track and isinstance(source_track["artist"], dict):
+            artists.append(source_track["artist"].get("name", ""))
 
-        # Matching heuristics
-        for item in results:
-            # Duration check
-            if (
-                target_dur > 0
-                and abs(item.get("duration", 0) - target_dur) > 15
-            ):
-                continue
+        # Build candidate queries (raw title, track+album, track+artist, track+artist+album)
+        queries = []
+        raw_title = source_track.get("title", "")
+        if raw_title:
+            queries.append(raw_title)
+        if album_name:
+            queries.append(f"{clean_title} {album_name}")
+        for artist in reversed(artists):
+            a_clean = self._clean_str(artist)
+            if a_clean:
+                queries.append(f"{clean_title} {a_clean}")
+                if album_name:
+                    queries.append(f"{clean_title} {a_clean} {album_name}")
 
-            # Title check
-            found_title = self._clean_str(item.get("title", ""))
-            if (
-                clean_title == found_title
-                or clean_title in found_title
-                or found_title in clean_title
-            ):
-                return self._map_tidal_to_internal(item, source_track)
+        if clean_title not in queries:
+            queries.append(clean_title)
 
+        best_score = 0.0
+        best_item = None
+
+        for q in queries:
+            data = self._search_tidal(q, types="TRACKS", limit=5)
+            results = data.get("tracks", {}).get("items", [])
+            for item in results:
+                cand_title = self._clean_str(item.get("title", ""))
+                # fuzzy similarity
+                score = difflib.SequenceMatcher(None, clean_title, cand_title).ratio()
+
+                # duration penalty/bonus
+                dur = item.get("duration", 0)
+                dur_score = 0
+                if target_dur > 0 and dur > 0:
+                    if abs(dur - target_dur) <= 3:
+                        dur_score = 1
+                    elif abs(dur - target_dur) <= 10:
+                        dur_score = 0
+                    else:
+                        dur_score = -0.2
+
+                combined = score + dur_score
+                if combined > best_score:
+                    best_score = combined
+                    best_item = item
+
+            # quick accept if very high match
+            if best_score >= 0.90:
+                break
+
+        # threshold to accept
+        if best_item and best_score >= 0.8:
+            return self._map_tidal_to_internal(best_item, source_track)
+
+        # nothing acceptable
+        if not silent and self.console:
+            self.console.print(f"[Miss] '{clean_title}' (best={best_score:.2f})", style="warn")
+        elif not silent:
+            print(f"      [Miss] '{clean_title}' (best={best_score:.2f})")
         return None
 
     def _find_track(self, source_track, silent=False):
