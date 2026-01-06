@@ -454,7 +454,6 @@ class TidalMapper(IdConverter):
             if raw_title and isinstance(artist, str) and artist:
                 queries.append(f"{raw_title} {artist}")  # raw title + artist
                 if raw_ap and raw_ap != raw_title:
-                    print(f"{raw_ap} {artist}")
                     queries.append(f"{raw_ap} {artist}")  # raw apostrophe-preserving + artist
 
             a_clean = self._clean_str(artist)
