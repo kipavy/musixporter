@@ -3,6 +3,7 @@ import time
 import json
 import re
 import difflib
+import unicodedata
 import base64
 from musixporter.interfaces import IdConverter
 
@@ -41,12 +42,7 @@ class TidalMapper(IdConverter):
             "name": "Fire TV",
             "id": "7m7Ap0JC9j1cOM3n",
             "secret": "vRAdA108tlvkJpTsGZS8rGZ7xTlbJ0qaZ2K9saEzsgY=",
-        },
-        {
-            "name": "Android Auto",
-            "id": "zU4XHVVkc2tDPo4t",
-            "secret": "VJKhDFqJPqvsPVNBV6ukXTJmwlvbttP7wlMlrc72se4=",
-        },
+        }
     ]
 
     AUTH_URL = "https://auth.tidal.com/v1/oauth2/token"
@@ -344,8 +340,13 @@ class TidalMapper(IdConverter):
     def _clean_str(self, s):
         if not s:
             return ""
-        s = re.sub(r"\s*[\(\[].*?[\)\]]", "", s)  # Remove (feat) [Edit]
-        return re.sub(r"[^a-zA-Z0-9 ]", "", s.lower()).strip()
+        # Remove parenthetical parts like (feat ...) or [Edit]
+        s = re.sub(r"\s*[\(\[].*?[\)\]]", "", s)
+        # Normalize unicode (remove diacritics) while preserving letters
+        s = unicodedata.normalize("NFKD", s)
+        s = "".join(ch for ch in s if not unicodedata.combining(ch))
+        # Remove any remaining non-alphanumeric characters and lowercase
+        return re.sub(r"[^a-zA-Z0-9 ]", "", s).lower().strip()
 
     def _get_safe_artist(self, obj):
         """Robustly extracts Artist Name and ID from any dict structure."""
@@ -437,11 +438,16 @@ class TidalMapper(IdConverter):
         elif "artist" in source_track and isinstance(source_track["artist"], dict):
             artists.append(source_track["artist"].get("name", ""))
 
-        # Build candidate queries (raw title, track+album, track+artist, track+artist+album)
+        # Build candidate queries (raw title, apostrophe-preserving, track+album, track+artist, track+artist+album)
         queries = []
         raw_title = source_track.get("title", "")
         if raw_title:
             queries.append(raw_title)
+            # also try a variant that preserves apostrophes but removes parentheticals
+            raw_ap = raw_title.replace("’", "'")
+            raw_ap = re.sub(r"\s*[\(\[].*?[\)\]]", "", raw_ap).strip()
+            if raw_ap and raw_ap != raw_title:
+                queries.append(raw_ap)
         if album_name:
             queries.append(f"{clean_title} {album_name}")
         for artist in reversed(artists):
