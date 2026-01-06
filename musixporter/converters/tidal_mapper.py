@@ -467,22 +467,37 @@ class TidalMapper(IdConverter):
             data = self._search_tidal(q, types="TRACKS", limit=5)
             results = data.get("tracks", {}).get("items", [])
             for item in results:
+                # Title similarity
                 cand_title = self._clean_str(item.get("title", ""))
-                # fuzzy similarity
                 score = difflib.SequenceMatcher(None, clean_title, cand_title).ratio()
 
-                # duration penalty/bonus
+                # Artist similarity (penalize wrong-artist matches)
+                # Determine primary source artist
+                src_artist = ""
+                if len(artists) > 0 and artists[0]:
+                    src_artist = artists[0]
+                else:
+                    src_artist = self._get_safe_artist(source_track)[0]
+                cand_artist = self._get_safe_artist(item)[0]
+                artist_score = 0.0
+                if src_artist and cand_artist:
+                    artist_score = difflib.SequenceMatcher(
+                        None, self._clean_str(src_artist), self._clean_str(cand_artist)
+                    ).ratio()
+
+                # Duration small bonus/penalty (kept intentionally small)
                 dur = item.get("duration", 0)
                 dur_score = 0
                 if target_dur > 0 and dur > 0:
                     if abs(dur - target_dur) <= 3:
-                        dur_score = 1
+                        dur_score = 0.1
                     elif abs(dur - target_dur) <= 10:
                         dur_score = 0
                     else:
-                        dur_score = -0.2
+                        dur_score = -0.1
 
-                combined = score + dur_score
+                # Weighted combination: title stronger than artist, plus small duration influence
+                combined = (score * 0.8) + (artist_score * 0.2) + dur_score
                 if combined > best_score:
                     best_score = combined
                     best_item = item

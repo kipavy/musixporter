@@ -10,7 +10,7 @@ uvx --refresh --from git+https://github.com/kipavy/musixporter.git musixporter
 
 but if you prefer to install it into a virtual environment, do:
 ```sh
-uv venv musixporter-env
+uv venv
 uv pip install git+https://github.com/kipavy/musixporter.git
 ```
 
