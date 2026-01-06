@@ -18,7 +18,7 @@ uv pip install git+https://github.com/kipavy/musixporter.git
 
 Examples:
 
-Export from YT-Music Playlist to Monochrome:
+Export from YT-Music Playlist to [Monochrome](https://monochrome.samidy.com/):
 
 ```sh
 musixporter ytmusic --yt-playlist PLjfeWyMu9MJi_1aaHr4ge5uGZ3d3vcN2M
