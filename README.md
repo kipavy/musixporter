@@ -21,7 +21,7 @@ Examples:
 Export from YT-Music Playlist to Monochrome:
 
 ```sh
-musixporter yt-music --source-playlist PLjfeWyMu9MJi_1aaHr4ge5uGZ3d3vcN2M --target monochrome
+musixporter ytmusic --yt-playlist PLjfeWyMu9MJi_1aaHr4ge5uGZ3d3vcN2M
 ```
 
 ### Import into Monochrome
