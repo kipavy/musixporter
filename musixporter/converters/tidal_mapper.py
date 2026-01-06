@@ -284,8 +284,8 @@ class TidalMapper(IdConverter):
         try:
             # 1. TRY ISRC FIRST (if available)
             isrc = source_track.get('isrc')
-            if isrc:
-                tidal_track = self._find_track_by_isrc(isrc, source_track)
+            if isrc and isinstance(isrc, str) and isrc.strip():
+                tidal_track = self._find_track_by_isrc(isrc.strip(), source_track)
                 if tidal_track:
                     return tidal_track
             
