@@ -441,24 +441,30 @@ class TidalMapper(IdConverter):
         # Build candidate queries (raw title, apostrophe-preserving, track+album, track+artist, track+artist+album)
         queries = []
         raw_title = source_track.get("title", "")
+        raw_ap = None
         if raw_title:
-            queries.append(raw_title)
-            # also try a variant that preserves apostrophes but removes parentheticals
+            queries.append(raw_title)  # raw title query
             raw_ap = raw_title.replace("’", "'")
             raw_ap = re.sub(r"\s*[\(\[].*?[\)\]]", "", raw_ap).strip()
             if raw_ap and raw_ap != raw_title:
-                queries.append(raw_ap)
+                queries.append(raw_ap)  # raw title with apostrophes without parentheticals
         if album_name:
-            queries.append(f"{clean_title} {album_name}")
+            queries.append(f"{clean_title} {album_name}")  # track + album
         for artist in reversed(artists):
+            if raw_title and isinstance(artist, str) and artist:
+                queries.append(f"{raw_title} {artist}")  # raw title + artist
+                if raw_ap and raw_ap != raw_title:
+                    print(f"{raw_ap} {artist}")
+                    queries.append(f"{raw_ap} {artist}")  # raw apostrophe-preserving + artist
+
             a_clean = self._clean_str(artist)
             if a_clean:
-                queries.append(f"{clean_title} {a_clean}")
+                queries.append(f"{clean_title} {a_clean}")  # track + artist
                 if album_name:
-                    queries.append(f"{clean_title} {a_clean} {album_name}")
+                    queries.append(f"{clean_title} {a_clean} {album_name}")  # track + artist + album
 
         if clean_title not in queries:
-            queries.append(clean_title)
+            queries.append(clean_title)  # clean title last
 
         best_score = 0.0
         best_item = None
