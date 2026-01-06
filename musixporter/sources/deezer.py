@@ -361,6 +361,7 @@ class DeezerGatewaySource(InputSource):
 
         return {
             "id": int(tid),
+            "isrc": self._find_val(t, ["ISRC", "isrc", "SNG_ISRC"]),
             "title": self._find_val(
                 t, ["SNG_TITLE", "TITLE", "title"], "Unknown"
             ),
