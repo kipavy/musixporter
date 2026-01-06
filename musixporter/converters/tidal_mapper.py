@@ -258,21 +258,50 @@ class TidalMapper(IdConverter):
         # Fallback
         return "Unknown", 0
 
-    def _find_track(self, deezer_track, silent=False):
+    def _find_track_by_isrc(self, isrc, source_track):
+        """Try to find a track on Tidal using its ISRC code."""
         try:
-            # 1. EXTRACT DEEZER METADATA
-            art_name, art_id = self._get_safe_artist(deezer_track)
+            # Search Tidal by ISRC
+            params = {'query': isrc, 'limit': 5, 'types': 'TRACKS', 'countryCode': self.country_code}
+            
+            r = self.session.get(f"{self.API_BASE}/search", params=params)
+            results = r.json().get('tracks', {}).get('items', [])
+            
+            if not results:
+                return None
+            
+            # Check if any result has matching ISRC
+            for item in results:
+                item_isrc = item.get('isrc')
+                if item_isrc and item_isrc.upper() == isrc.upper():
+                    return self._map_tidal_to_internal(item, source_track)
+            
+            return None
+        except Exception:
+            return None
+
+    def _find_track(self, source_track, silent=False):
+        try:
+            # 1. TRY ISRC FIRST (if available)
+            isrc = source_track.get('isrc')
+            if isrc and isinstance(isrc, str) and isrc.strip():
+                tidal_track = self._find_track_by_isrc(isrc.strip(), source_track)
+                if tidal_track:
+                    return tidal_track
+            
+            # 2. EXTRACT SOURCE METADATA
+            art_name, art_id = self._get_safe_artist(source_track)
             
             if art_name == "Unknown":
                 # Only fail if title is also missing
-                if not deezer_track.get('title'): return None
+                if not source_track.get('title'): return None
 
             # Clean up for search
             search_art = art_name.split('(')[0].split('feat')[0].strip()
-            clean_title = self._clean_str(deezer_track.get('title', ''))
-            target_dur = deezer_track.get('duration', 0)
+            clean_title = self._clean_str(source_track.get('title', ''))
+            target_dur = source_track.get('duration', 0)
             
-            # 2. SEARCH TIDAL
+            # 3. SEARCH TIDAL BY ARTIST AND TITLE
             query = f"{search_art} {clean_title}"
             params = {'query': query, 'limit': 5, 'types': 'TRACKS', 'countryCode': self.country_code}
             
@@ -293,7 +322,7 @@ class TidalMapper(IdConverter):
                         print(f"      [Miss] '{query}'")
                 return None
             
-            # 3. MATCHING
+            # 4. MATCHING
             for item in results:
                 # Duration check
                 if target_dur > 0 and abs(item['duration'] - target_dur) > 15:
@@ -302,23 +331,23 @@ class TidalMapper(IdConverter):
                 # Title check
                 found_title = self._clean_str(item['title'])
                 if clean_title == found_title or clean_title in found_title or found_title in clean_title:
-                    return self._map_tidal_to_internal(item, deezer_track)
+                    return self._map_tidal_to_internal(item, source_track)
             
             return None
 
         except Exception as e:
             if not silent:
-                t_title = deezer_track.get('title', 'Unknown')
+                t_title = source_track.get('title', 'Unknown')
                 if self.console:
                     self.console.print(f"[Error processing '{t_title}']: {e}", style="error")
                 else:
                     print(f"      [Error processing '{t_title}']: {e}")
             return None
 
-    def _find_album(self, deezer_alb):
+    def _find_album(self, source_alb):
         try:
-            art_name, _ = self._get_safe_artist(deezer_alb)
-            query = f"{art_name} {deezer_alb.get('title','')}"
+            art_name, _ = self._get_safe_artist(source_alb)
+            query = f"{art_name} {source_alb.get('title','')}"
             params = {'query': query, 'limit': 1, 'types': 'ALBUMS', 'countryCode': self.country_code}
             
             r = self.session.get(f"{self.API_BASE}/search", params=params)
@@ -331,7 +360,7 @@ class TidalMapper(IdConverter):
                 return {
                     "id": item['id'],
                     "title": item['title'],
-                    "date_add": deezer_alb.get('date_add'),
+                    "date_add": source_alb.get('date_add'),
                     "release_date": item.get('releaseDate'),
                     "cover": f"https://resources.tidal.com/images/{item['cover'].replace('-', '/')}/640x640.jpg" if item.get('cover') else "",
                     "artist": {"id": t_art_id, "name": t_art_name},
@@ -341,7 +370,7 @@ class TidalMapper(IdConverter):
             return None
         except: return None
 
-    def _map_tidal_to_internal(self, tidal_item, original_deezer):
+    def _map_tidal_to_internal(self, tidal_item, original_source):
         # Extract artist safely from Tidal item (handles artist vs artists)
         t_art_name, t_art_id = self._get_safe_artist(tidal_item)
         
@@ -356,7 +385,7 @@ class TidalMapper(IdConverter):
             "duration": tidal_item['duration'],
             "explicit": tidal_item.get('explicit', False),
             "version": tidal_item.get('version', ''),
-            "date_add": original_deezer.get('date_add'),
+            "date_add": original_source.get('date_add'),
             "artist": {
                 "id": t_art_id, 
                 "name": t_art_name
