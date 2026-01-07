@@ -58,6 +58,79 @@ class YouTubeMusicSource(InputSource):
             self.client = YTMusic()
         info("[YouTube] Client initialized")
 
+    def _normalize_track(self, it: Dict[str, Any]) -> Dict[str, Any]:
+        artists = it.get("artists") or []
+        artist_name = artists[0].get("name") if artists else "Unknown"
+        return {
+            "id": it.get("videoId") or it.get("playlistItemId") or 0,
+            "title": it.get("title", ""),
+            "duration": _parse_duration(it.get("length")),
+            "artist": {"id": 0, "name": artist_name},
+            "date_add": None,
+        }
+
+    def _fetch_liked_tracks(self) -> List[Dict[str, Any]]:
+        try:
+            liked = self.client.get_liked_songs(limit=None)
+            return [self._normalize_track(it) for it in liked.get("tracks", [])]
+        except Exception:
+            return []
+
+    def _fetch_playlist(self, playlist_id: str) -> Dict[str, Any] | None:
+        try:
+            items = self.client.get_playlist(playlist_id, limit=None)
+            pl_items = [
+                self._normalize_track(it) for it in items.get("tracks", [])
+            ]
+            info(
+                f"[YouTube] Fetched public playlist {playlist_id}: '{items.get('title','')}' ({len(pl_items)} tracks)"
+            )
+            return {
+                "id": playlist_id,
+                "title": items.get("title", ""),
+                "tracks": pl_items,
+                "creation_date": items.get("published")
+                or items.get("publishedAt")
+                or 0,
+            }
+        except Exception:
+            return None
+
+    def _fetch_library_playlists(self) -> List[Dict[str, Any]]:
+        try:
+            pls = self.client.get_library_playlists(limit=50)
+            info(f"[YouTube] Found {len(pls)} library playlists")
+            out = []
+            for pl in pls:
+                pl_id = pl.get("playlistId")
+                pl_title = pl.get("title")
+                try:
+                    items = self.client.get_playlist(pl_id, limit=None)
+                    pl_items = [
+                        self._normalize_track(it)
+                        for it in items.get("tracks", [])
+                    ]
+                    info(
+                        f"[YouTube] Library playlist '{pl_title}' ({pl_id}): {len(pl_items)} tracks fetched"
+                    )
+                except Exception:
+                    pl_items = []
+
+                out.append(
+                    {
+                        "id": pl_id,
+                        "title": pl_title,
+                        "tracks": pl_items,
+                        "creation_date": pl.get("published")
+                        or pl.get("publishedAt")
+                        or pl.get("lastUpdated")
+                        or 0,
+                    }
+                )
+            return out
+        except Exception:
+            return []
+
     def fetch_data(self) -> Dict[str, Any]:
         """Fetch a minimal dataset and return normalized dict.
 
@@ -76,96 +149,13 @@ class YouTubeMusicSource(InputSource):
             "user_playlists": [],
         }
 
-        try:
-            liked = self.client.get_liked_songs(limit=None)
-            for it in liked.get("tracks", []):
-                artists = it.get("artists") or []
-                artist_name = artists[0].get("name") if artists else "Unknown"
-                track = {
-                    "id": it.get("videoId") or it.get("playlistItemId") or 0,
-                    "title": it.get("title", ""),
-                    "duration": _parse_duration(it.get("length")),
-                    "artist": {"id": 0, "name": artist_name},
-                    "date_add": None,
-                }
-                result["tracks"].append(track)
-        except Exception:
-            pass
+        result["tracks"] = self._fetch_liked_tracks()
 
         if self.playlist_id:
-            try:
-                items = self.client.get_playlist(self.playlist_id, limit=None)
-                pl_items = []
-                for it in items.get("tracks", []):
-                    artists = it.get("artists") or []
-                    artist_name = (
-                        artists[0].get("name") if artists else "Unknown"
-                    )
-                    pl_items.append(
-                        {
-                            "id": it.get("videoId") or 0,
-                            "title": it.get("title", ""),
-                            "duration": _parse_duration(it.get("length")),
-                            "artist": {"id": 0, "name": artist_name},
-                            "date_add": None,
-                        }
-                    )
-                info(f"[YouTube] Fetched public playlist {self.playlist_id}: '{items.get('title','')}' ({len(pl_items)} tracks)")
+            pl = self._fetch_playlist(self.playlist_id)
+            if pl:
+                result["user_playlists"].append(pl)
 
-                result["user_playlists"].append(
-                    {
-                        "id": self.playlist_id,
-                        "title": items.get("title", ""),
-                        "tracks": pl_items,
-                        "creation_date": items.get("published")
-                        or items.get("publishedAt")
-                        or 0,
-                    }
-                )
-            except Exception:
-                pass
-
-        try:
-            pls = self.client.get_library_playlists(limit=50)
-            info(f"[YouTube] Found {len(pls)} library playlists")
-            for pl in pls:
-                pl_id = pl.get("playlistId")
-                pl_title = pl.get("title")
-                pl_items = []
-                try:
-                    items = self.client.get_playlist(pl_id, limit=None)
-                    for it in items.get("tracks", []):
-                        artists = it.get("artists") or []
-                        artist_name = (
-                            artists[0].get("name") if artists else "Unknown"
-                        )
-                        pl_items.append(
-                            {
-                                "id": it.get("videoId") or 0,
-                                "title": it.get("title", ""),
-                                "duration": _parse_duration(it.get("length")),
-                                "artist": {"id": 0, "name": artist_name},
-                                "date_add": None,
-                            }
-                        )
-                    info(f"[YouTube] Library playlist '{pl_title}' ({pl_id}): {len(pl_items)} tracks fetched")
-                except Exception:
-                    pl_items = []
-
-                result["user_playlists"].append(
-                    {
-                        "id": pl_id,
-                        "title": pl_title,
-                        "tracks": pl_items,
-                        "creation_date": pl.get("published")
-                        or pl.get("publishedAt")
-                        or pl.get("lastUpdated")
-                        or 0,
-                    }
-                )
-        except Exception:
-            pass
-
-        
+        result["user_playlists"].extend(self._fetch_library_playlists())
 
         return result
