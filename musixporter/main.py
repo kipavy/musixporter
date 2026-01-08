@@ -34,6 +34,11 @@ def main():
         help="(YouTube) public playlist id to fetch (unauthenticated)",
     )
     parser.add_argument(
+        "--playlist-id",
+        default=None,
+        help="(Deezer) playlist id to fetch (unauthenticated if public)",
+    )
+    parser.add_argument(
         "-u",
         "--user",
         dest="user_id",
@@ -69,6 +74,7 @@ def main():
             source = get_source(
                 args.source,
                 user_id=args.user_id,
+                playlist_id=args.playlist_id,
             )
         else:
             source = get_source(args.source)

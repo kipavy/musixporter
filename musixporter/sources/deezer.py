@@ -31,13 +31,17 @@ class DeezerUserSource(InputSource):
         self,
         user_id: Optional[str] = None,
         access_token: Optional[str] = None,
+        playlist_id: Optional[str] = None,
     ):
-        # if no user_id is provided, skip and say nothing to convert
-        if not user_id:
-            warn("[Deezer] No user ID provided, skipping Deezer source.")
+        # If neither a user id nor a playlist id is provided, skip.
+        if not user_id and not playlist_id:
+            warn(
+                "[Deezer] No user ID or playlist ID provided, skipping Deezer source."
+            )
 
         self.user_id = user_id
         self.access_token = access_token
+        self.playlist_id = playlist_id
 
         if not access_token:
             warn(
@@ -70,6 +74,20 @@ class DeezerUserSource(InputSource):
         )
 
     def fetch_data(self) -> dict:
+        if self.playlist_id:
+            info("[Deezer] Fetching playlist…")
+            playlist = self._fetch_playlist_by_id(self.playlist_id)
+
+            info("[Deezer] Normalizing data…")
+
+            playlists = [playlist] if playlist else []
+            return {
+                "tracks": [],
+                "albums": [],
+                "artists": [],
+                "user_playlists": [self._normalize_playlist(p) for p in playlists],
+            }
+
         if not self.user_id:
             return {
                 "tracks": [],
@@ -201,6 +219,27 @@ class DeezerUserSource(InputSource):
             )
 
         return playlists
+
+    def _fetch_playlist_by_id(self, playlist_id: str):
+        info("   → Playlist")
+        try:
+            pl = self.client.get_playlist(playlist_id)
+        except Exception as e:
+            warn(f"[Deezer] Failed to fetch playlist {playlist_id}: {e}")
+            return None
+
+        try:
+            tracks = list(pl.get_tracks())
+        except Exception:
+            tracks = []
+
+        return {
+            "id": getattr(pl, "id", playlist_id),
+            "title": getattr(pl, "title", str(playlist_id)),
+            "creation_date": getattr(pl, "creation_date", 0),
+            "picture": getattr(pl, "picture", None),
+            "tracks": tracks,
+        }
 
     # -------------------------
     # Normalizers

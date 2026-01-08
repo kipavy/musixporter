@@ -25,13 +25,21 @@ musixporter ytmusic --yt-playlist PLjfeWyMu9MJi_1aaHr4ge5uGZ3d3vcN2M
 ```
 
 Export from YT-Music User to [Monochrome](https://monochrome.samidy.com/):
+
 ```sh
 musixporter ytmusic --user UCYAWn2uTuEkb9w_FzM-nQhw
 ```
 
 Export from deezer user to [Monochrome](https://monochrome.samidy.com/):
+
 ```sh
 musixporter deezer --user 65192821
+```
+
+Export from a public Deezer playlist to [Monochrome](https://monochrome.samidy.com/):
+
+```sh
+musixporter deezer --playlist-id 12345678
 ```
 
 ### Import into Monochrome
