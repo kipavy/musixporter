@@ -12,7 +12,9 @@ dependencies = [
     "requests",
     "browser-cookie3",
     "rich",
-    "ytmusicapi"
+    "deezer-python",
+    "ytmusicapi",
+    "limits>=3.13.0",
 ]
     
 [project.scripts]

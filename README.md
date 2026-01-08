@@ -24,6 +24,16 @@ Export from YT-Music Playlist to [Monochrome](https://monochrome.samidy.com/):
 musixporter ytmusic --yt-playlist PLjfeWyMu9MJi_1aaHr4ge5uGZ3d3vcN2M
 ```
 
+Export from YT-Music User to [Monochrome](https://monochrome.samidy.com/):
+```sh
+musixporter ytmusic --user_id UCYAWn2uTuEkb9w_FzM-nQhw
+```
+
+Export from deezer user to [Monochrome](https://monochrome.samidy.com/):
+```sh
+musixporter deezer --user-id 65192821
+```
+
 ### Import into Monochrome
 
 Import the generated `monochrome_tidal_import.json` file into Monochrome.

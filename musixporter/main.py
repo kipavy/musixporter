@@ -1,4 +1,5 @@
 import argparse
+from datetime import datetime
 from musixporter.sources.factory import get_source, list_sources
 from musixporter.converters.tidal_mapper import TidalMapper
 from musixporter.formatters.monochrome import MonochromeJsonOutput
@@ -12,7 +13,9 @@ def main():
 
     available = list_sources()
     if not available:
-        error("No sources available. Make sure musixporter.sources modules exist.")
+        error(
+            "No sources available. Make sure musixporter.sources modules exist."
+        )
         return
 
     parser.add_argument(
@@ -30,15 +33,26 @@ def main():
         default=None,
         help="(YouTube) public playlist id to fetch (unauthenticated)",
     )
+    parser.add_argument(
+        "-u",
+        "--user",
+        dest="user_id",
+        default=None,
+        help="User ID",
+    )
+
+    # REFACOR IN 1 PARSER PER SOURCE TO GET -u | --user per source
+
     args = parser.parse_args()
 
     if (
         args.source == "ytmusic"
         and not args.yt_headers
         and not args.yt_playlist
+        and not args.user_id
     ):
         parser.error(
-            "When --source ytmusic you must provide --yt-headers or --yt-playlist"
+            "When --source ytmusic you must provide --yt-headers, --yt-playlist or --user"
         )
 
     info(f"=== Music Exporter (source={args.source}) ===")
@@ -49,6 +63,12 @@ def main():
                 args.source,
                 auth_headers_path=args.yt_headers,
                 playlist_id=args.yt_playlist,
+                user=args.user_id,
+            )
+        elif args.source == "deezer":
+            source = get_source(
+                args.source,
+                user_id=args.user_id,
             )
         else:
             source = get_source(args.source)
@@ -67,7 +87,13 @@ def main():
         info("\n--- Phase 2: Converting IDs to Tidal ---")
         tidal_data = converter.convert(data)
 
-        formatter.save(tidal_data, "monochrome_tidal_import.json")
+        now = datetime.now().strftime("%Y%m%dT%H%M%S")
+        suffix_parts = []
+        suffix = ("-" + "-".join(suffix_parts)) if suffix_parts else ""
+        out_filename = f"monochrome_tidal_import-{now}{suffix}.json"
+
+        formatter.save(tidal_data, out_filename)
+        info(f"Saved output to {out_filename}")
 
     except Exception as e:
         error(f"\nFATAL ERROR: {e}")
