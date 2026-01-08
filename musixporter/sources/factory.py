@@ -34,7 +34,8 @@ def discover_sources(
     for full_mod, short_name in _iter_source_modules(package_name):
         try:
             mod = importlib.import_module(full_mod)
-        except Exception:
+        except Exception as e:
+            print(f"Warning: failed to import source module {full_mod}: {e}")
             continue
 
         for _, obj in inspect.getmembers(mod, inspect.isclass):

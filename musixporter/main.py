@@ -36,17 +36,20 @@ def main():
     parser.add_argument(
         "-u",
         "--user",
-        dest="yt_user",
+        dest="user_id",
         default=None,
-        help="(YouTube) public username/channel id to scan public playlists",
+        help="User ID",
     )
+
+    # REFACOR IN 1 PARSER PER SOURCE TO GET -u | --user per source
+
     args = parser.parse_args()
 
     if (
         args.source == "ytmusic"
         and not args.yt_headers
         and not args.yt_playlist
-        and not args.yt_user
+        and not args.user_id
     ):
         parser.error(
             "When --source ytmusic you must provide --yt-headers, --yt-playlist or --user"
@@ -60,7 +63,12 @@ def main():
                 args.source,
                 auth_headers_path=args.yt_headers,
                 playlist_id=args.yt_playlist,
-                user=args.yt_user,
+                user=args.user_id,
+            )
+        elif args.source == "deezer":
+            source = get_source(
+                args.source,
+                user_id=args.user_id,
             )
         else:
             source = get_source(args.source)
