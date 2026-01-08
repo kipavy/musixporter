@@ -184,8 +184,6 @@ class TidalMapper(IdConverter):
 
         queries = [
             f"{artist} {title}",
-            f"{artist} {clean_title}",
-            f"{clean_artist} {title}",
             f"{clean_artist} {clean_title}",
         ]
 
