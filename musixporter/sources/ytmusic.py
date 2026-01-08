@@ -214,14 +214,15 @@ class YouTubeMusicSource(InputSource):
             "user_playlists": [],
         }
 
-        result["tracks"] = self._fetch_liked_tracks()
-
         if self.playlist_id:
             pl = self._fetch_playlist(self.playlist_id)
             if pl:
                 result["user_playlists"].append(pl)
 
-        result["user_playlists"].extend(self._fetch_library_playlists())
         result["user_playlists"].extend(self._fetch_user_playlists())
+
+        if self.auth_headers_path:
+            result["tracks"] = self._fetch_liked_tracks()
+            result["user_playlists"].extend(self._fetch_library_playlists())
 
         return result
