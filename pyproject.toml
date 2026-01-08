@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "musixporter"
 version = "1.0.0"
 description = "Modular music library exporter"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 
 dependencies = [
     "requests",
@@ -15,6 +15,7 @@ dependencies = [
     "deezer-python",
     "ytmusicapi",
     "limits>=3.13.0",
+    "minim>=1.0.0",
 ]
     
 [project.scripts]

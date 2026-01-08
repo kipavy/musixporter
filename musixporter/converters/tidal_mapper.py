@@ -1,11 +1,10 @@
-import requests
 import json
 import re
 import difflib
 import unicodedata
-import base64
 import time
 from functools import lru_cache
+from minim import tidal
 from musixporter.interfaces import IdConverter
 
 # Optional rich for improved console output
@@ -46,13 +45,9 @@ class TidalMapper(IdConverter):
         }
     ]
 
-    AUTH_URL = "https://auth.tidal.com/v1/oauth2/token"
-    API_BASE = "https://api.tidal.com/v1"
-
     def __init__(self):
-        self.session = requests.Session()
         self.country_code = "FR"
-        self.bearer_token = None
+        self.client: tidal.PrivateAPI | None = None
         self.console = console
 
         # caches (speed)
@@ -64,6 +59,9 @@ class TidalMapper(IdConverter):
     # ----------------------------
 
     def _authenticate(self):
+        if self.client is not None:
+            return
+
         if self.console:
             self.console.print("[Tidal] Generating Access Token...", style="info")
         else:
@@ -71,38 +69,23 @@ class TidalMapper(IdConverter):
 
         for key in self.API_KEYS:
             try:
-                creds = f"{key['id']}:{key['secret']}"
-                b64 = base64.b64encode(creds.encode()).decode()
-                headers = {
-                    "Authorization": f"Basic {b64}",
-                    "Content-Type": "application/x-www-form-urlencoded",
-                }
-                r = self.session.post(
-                    self.AUTH_URL,
-                    headers=headers,
-                    data={"grant_type": "client_credentials"},
-                    timeout=5,
+                client = tidal.PrivateAPI(
+                    client_id=key["id"],
+                    client_secret=key["secret"],
                 )
-                data = r.json()
-                if r.status_code == 200 and "access_token" in data:
-                    self.bearer_token = data["access_token"]
-                    self.session.headers.update(
-                        {
-                            "Authorization": f"Bearer {self.bearer_token}",
-                            "Accept": "application/json",
-                        }
+                self.client = client
+
+            except Exception as e:
+                if self.console:
+                    self.console.print(
+                        f"[Tidal] Authentication failed with key '{key['name']}': {e}",
+                        style="error",
                     )
-                    if self.console:
-                        self.console.print(
-                            f"[Tidal] Authenticated successfully using {key['name']}.",
-                            style="success",
-                        )
-                    else:
-                        print(f"[Tidal] Authenticated successfully using {key['name']}.")
-                    return
-            except Exception:
+                else:
+                    print(
+                        f"[Tidal] Authentication failed with key '{key['name']}': {e}"
+                    )
                 continue
-        raise RuntimeError("FATAL: Could not generate a Tidal Access Token.")
 
     # ----------------------------
     # Utilities
@@ -128,23 +111,31 @@ class TidalMapper(IdConverter):
     # Network (cached)
     # ----------------------------
 
-    def _search_tidal(self, query, types="TRACKS", limit=5):
-        key = (query, types, limit)
+    def _search_tidal(self, query, type="track", limit=5):
+        self._authenticate()
+
+        key = (query, type, limit, self.country_code)
         if key in self._search_cache:
             return self._search_cache[key]
 
         try:
-            r = self.session.get(
-                f"{self.API_BASE}/search",
-                params={
-                    "query": query,
-                    "limit": limit,
-                    "types": types,
-                    "countryCode": self.country_code,
-                },
-                timeout=5,
+            result = self.client.search(
+                query,
+                country_code=self.country_code,
+                type=type,
+                limit=limit,
             )
-            data = r.json()
+            items = result.get("items", []) if isinstance(result, dict) else []
+
+            if type == "track":
+                data = {"tracks": {"items": items}}
+            elif type == "album":
+                data = {"albums": {"items": items}}
+            elif type == "artist":
+                data = {"artists": {"items": items}}
+            else:
+                data = result if isinstance(result, dict) else {}
+
             self._search_cache[key] = data
             return data
         except Exception:
@@ -157,16 +148,14 @@ class TidalMapper(IdConverter):
     def _find_track_by_isrc(self, isrc):
         if not isrc:
             return None
+
         try:
-            r = self.session.get(
-                f"{self.API_BASE}/tracks/isrc:{isrc}",
-                params={"countryCode": self.country_code},
-                timeout=5,
-            )
-            if r.status_code == 200:
-                return self._map_tidal_to_internal(r.json())
+            data = self._search_tidal(isrc, type="track", limit=5)
+            for item in data.get("tracks", {}).get("items", []) or []:
+                if (item.get("isrc") or "").upper() == str(isrc).upper():
+                    return self._map_tidal_to_internal(item)
         except Exception:
-            pass
+            return None
         return None
 
     def _approach_isrc(self, source_track):
@@ -225,8 +214,8 @@ class TidalMapper(IdConverter):
                     best_score = score
                     best_item = item
 
-            # if best_score >= 0.9:
-                # break
+            if best_score >= 0.9:
+                break
 
         if best_item and best_score >= 0.8:
             return self._map_tidal_to_internal(best_item, source_track)
@@ -270,7 +259,7 @@ class TidalMapper(IdConverter):
             art_name, _ = self._get_safe_artist(source_album)
             query = f"{art_name} {source_album.get('title','')}"
             
-            data = self._search_tidal(query, types="ALBUMS", limit=1)
+            data = self._search_tidal(query, type="album", limit=1)
             results = data.get("albums", {}).get("items", [])
             if results:
                 item = results[0]
