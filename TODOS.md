@@ -1,1 +1,2 @@
 - Add source ouput format validation with pydantic
+- FIX TIDAL MAPPER ISRC (BROKEN)

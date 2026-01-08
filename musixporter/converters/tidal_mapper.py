@@ -183,10 +183,10 @@ class TidalMapper(IdConverter):
         target_dur = source_track.get("duration", 0)
 
         queries = [
-            title,
-            f"{title} {artist}",
-            f"{clean_title} {clean_artist}",
-            clean_title,
+            f"{artist} {title}",
+            f"{artist} {clean_title}",
+            f"{clean_artist} {title}",
+            f"{clean_artist} {clean_title}",
         ]
 
         best_score = 0.0
@@ -227,8 +227,8 @@ class TidalMapper(IdConverter):
                     best_score = score
                     best_item = item
 
-            if best_score >= 0.9:
-                break
+            # if best_score >= 0.9:
+                # break
 
         if best_item and best_score >= 0.8:
             return self._map_tidal_to_internal(best_item, source_track)
