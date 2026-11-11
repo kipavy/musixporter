@@ -1,22 +1,28 @@
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "musixporter"
-version = "1.0.0"
-description = "Modular music library exporter"
+version = "2.0.0"
+description = "Export a Deezer / YouTube Music library to Monochrome (Tidal)"
+readme = "README.md"
 requires-python = ">=3.9"
-
 dependencies = [
-    "requests",
-    "browser-cookie3",
-    "rich",
-    "deezer-python",
-    "ytmusicapi",
-    "limits>=3.13.0",
-    "minim>=1.0.0",
+    "requests>=2.28",
+    "rich>=13",
+    "ytmusicapi>=1.8",
 ]
-    
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+build = ["pyinstaller>=6"]
+
 [project.scripts]
-musixporter = "musixporter.main:main"
+musixporter = "musixporter.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["musixporter*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,36 +1,26 @@
-try:
-    from rich.console import Console
-    from rich.theme import Theme
-    console = Console(theme=Theme({"info": "cyan", "success": "green", "error": "bold red", "warn": "yellow"}))
-except Exception:
-    class _Fallback:
-        def print(self, *args, **kwargs):
-            print(*args)
-        def print_exception(self, *args, **kwargs):
-            import traceback
-            traceback.print_exc()
-    console = _Fallback()
+"""Shared console helpers (one rich Console for the whole app)."""
 
-def info(msg, **kwargs):
-    try:
-        console.print(msg, style="info", **kwargs)
-    except Exception:
-        console.print(msg)
+from rich.console import Console
+from rich.theme import Theme
 
-def success(msg, **kwargs):
-    try:
-        console.print(msg, style="success", **kwargs)
-    except Exception:
-        console.print(msg)
+console = Console(
+    theme=Theme(
+        {"info": "cyan", "success": "green", "error": "bold red", "warn": "yellow"}
+    )
+)
 
-def warn(msg, **kwargs):
-    try:
-        console.print(msg, style="warn", **kwargs)
-    except Exception:
-        console.print(msg)
 
-def error(msg, **kwargs):
-    try:
-        console.print(msg, style="error", **kwargs)
-    except Exception:
-        console.print(msg)
+def info(msg: str) -> None:
+    console.print(msg, style="info", highlight=False)
+
+
+def success(msg: str) -> None:
+    console.print(msg, style="success", highlight=False)
+
+
+def warn(msg: str) -> None:
+    console.print(msg, style="warn", highlight=False)
+
+
+def error(msg: str) -> None:
+    console.print(msg, style="error", highlight=False)
