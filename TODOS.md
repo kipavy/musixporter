@@ -1,2 +1,3 @@
-- Add source ouput format validation with pydantic
-- FIX TIDAL MAPPER ISRC (BROKEN)
+- Other output formats / targets (the pipeline is source -> Tidal ids -> formatter)
+- Optional on-disk cache of Tidal lookups between runs
+- Spotify source

@@ -1,100 +1,103 @@
+"""Monochrome library backup format (Settings > import library).
+
+Field names follow Monochrome's own export (``js/db.js``): dates are epoch
+milliseconds, covers are Tidal image UUIDs, user playlists are keyed by ``id``.
+"""
+
+from __future__ import annotations
+
 import json
-from datetime import datetime
-from musixporter.interfaces import OutputFormatter
+import time
+from pathlib import Path
 
-class MonochromeJsonOutput(OutputFormatter):
-    def _format_date(self, timestamp):
-        try:
-            ts = int(timestamp)
-            if ts == 0: return datetime.now().isoformat()
-            if ts > 10000000000: ts = ts / 1000
-            return datetime.fromtimestamp(ts).isoformat()
-        except: return str(timestamp)
+from musixporter.models import Album, Artist, Library, Playlist, Track
 
-    def _format_ms(self, timestamp):
-        try: return int(timestamp) * 1000
-        except: return 0
 
-    def save(self, data: dict, filename: str):
-        print(f"\n[Monochrome] Saving to {filename}...")
-        
-        out = {
-            "favorites_tracks": [self._fmt_t(t) for t in data['tracks'] if t['id'] != 0],
-            "favorites_albums": [],
-            "favorites_artists": data['artists'],
-            "favorites_playlists": [],
-            "user_playlists": []
-        }
+def _ms(epoch_seconds: int, default_ms: int) -> int:
+    return int(epoch_seconds) * 1000 if epoch_seconds else default_ms
 
-        for a in data['albums']:
-            if not a['id']: continue
-            out["favorites_albums"].append({
-                "id": int(a['id']),
-                "addedAt": self._format_ms(a['date_add']),
-                "title": a['title'],
-                "cover": self._normalize_cover(a['cover']),
-                "releaseDate": a['release_date'],
-                "explicit": False,
-                "artist": a['artist'],
-                "type": "ALBUM",
-                "numberOfTracks": int(a['nb_tracks'] or 0)
-            })
 
-        for pl in data['user_playlists']:
-            out["user_playlists"].append({
-                "cover": "",
-                "createdAt": self._format_ms(pl['creation_date']),
-                "id": str(pl['id']),
-                "name": pl['title'],
-                "tracks": [self._fmt_t(t) for t in pl['tracks']]
-            })
-
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(out, f, indent=2)
-        print("Done.")
-
-    def _fmt_t(self, t):
+class MonochromeFormatter:
+    def to_dict(self, library: Library) -> dict:
+        now = int(time.time() * 1000)
         return {
-            "id": int(t['id']),
-            "addedAt": self._format_ms(t.get('date_add', 0)),
-            "title": t['title'],
-            "duration": t['duration'],
-            "explicit": t['explicit'],
-            "version": t['version'],
-            "streamStartDate": self._format_date(t['date_add']),
-            "artists": [t['artist']],
-            "album": {
-                "id": int(t['album']['id']) if t['album']['id'] else 0,
-                "cover": self._normalize_cover(t['album']['cover'])
-            }
+            "favorites_tracks": [self._track(t, now) for t in library.tracks],
+            "favorites_albums": [self._album(a, now) for a in library.albums],
+            "favorites_artists": [self._artist(a, now) for a in library.artists],
+            "favorites_playlists": [],
+            "user_playlists": [self._playlist(p, now) for p in library.playlists],
         }
 
-    def _normalize_cover(self, cover):
-        """Normalize cover into the compact ID form.
+    def save(self, library: Library, path: Path) -> None:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(self.to_dict(library), f, indent=2, ensure_ascii=False)
 
-        Example:
-        https://resources.tidal.com/images/bddf1064/b2fb/4c6f/a2d5/fd54685b1b42/640x640.jpg
-        -> bddf1064-b2fb-4c6f-a2d5-fd54685b1b42
-        """
-        if not cover:
-            return cover
-        try:
-            if isinstance(cover, str) and cover.startswith('http'):
-                from urllib.parse import urlparse
-                p = urlparse(cover)
-                path = p.path or ''
-                if '/images/' in path:
-                    rest = path.split('/images/', 1)[1]
-                    parts = [p for p in rest.split('/') if p]
-                    if len(parts) >= 1:
-                        if '.' in parts[-1]:
-                            parts = parts[:-1]
-                        if parts:
-                            return '-'.join(parts)
-            if isinstance(cover, str) and '/' in cover and not cover.startswith('http'):
-                parts = [p for p in cover.split('/') if p]
-                if parts:
-                    return '-'.join(parts)
-        except Exception:
-            pass
-        return cover
+    @staticmethod
+    def _artist_ref(a: Artist) -> dict:
+        return {"id": a.id, "name": a.name}
+
+    def _track(self, t: Track, now: int) -> dict:
+        artists = [self._artist_ref(a) for a in t.artists]
+        return {
+            "id": t.id,
+            "addedAt": _ms(t.date_add, now),
+            "title": t.title,
+            "duration": t.duration,
+            "explicit": t.explicit,
+            "artist": artists[0] if artists else None,
+            "artists": artists,
+            "album": {
+                "id": t.album.id,
+                "title": t.album.title,
+                "cover": t.album.cover,
+                "releaseDate": t.album.release_date,
+            }
+            if t.album
+            else None,
+            "isrc": t.isrc,
+            "version": t.version,
+            "streamStartDate": t.stream_start_date,
+        }
+
+    def _album(self, a: Album, now: int) -> dict:
+        return {
+            "id": a.id,
+            "addedAt": _ms(a.date_add, now),
+            "title": a.title,
+            "cover": a.cover,
+            "releaseDate": a.release_date,
+            "explicit": a.explicit,
+            "artist": self._artist_ref(a.artist) if a.artist else None,
+            "type": "ALBUM",
+            "numberOfTracks": a.nb_tracks,
+        }
+
+    @staticmethod
+    def _artist(a: Artist, now: int) -> dict:
+        return {
+            "id": a.id,
+            "addedAt": _ms(a.date_add, now),
+            "name": a.name,
+            "picture": a.picture,
+        }
+
+    def _playlist(self, p: Playlist, now: int) -> dict:
+        tracks = [self._track(t, now) for t in p.tracks]
+        covers: list[str] = []
+        for t in p.tracks:
+            if t.album and t.album.cover and t.album.cover not in covers:
+                covers.append(t.album.cover)
+        created = _ms(p.creation_date, now)
+        return {
+            # Stable id: importing the same playlist again updates it
+            # instead of creating a duplicate.
+            "id": f"musixporter-{p.id}" if p.id else f"musixporter-{created}-{p.title}",
+            "name": p.title,
+            "tracks": tracks,
+            "cover": "",
+            "description": p.description,
+            "createdAt": created,
+            "updatedAt": now,
+            "numberOfTracks": len(tracks),
+            "images": covers[:4],
+        }

@@ -4,4 +4,8 @@ __pycache__/
 
 monochrome*.json
 *import.json
-missed*.json
+missed*.json.venv/
+build/
+dist/
+*.spec
+.pytest_cache/
